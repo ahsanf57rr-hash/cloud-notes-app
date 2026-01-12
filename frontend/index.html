@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cloud Notes App</title>
+
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: linear-gradient(135deg, #eef2f7, #f9fbfd);
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 750px;
+            background: white;
+            padding: 25px;
+            margin: auto;
+            border-radius: 10px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button {
+            padding: 10px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+
+        .notes-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 25px;
+            gap: 10px;
+        }
+
+        .note {
+            background: #f4f7fb;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+
+        .note.updated {
+            border-left: 4px solid #28a745;
+            background: #f1fbf4;
+        }
+
+        .note-title {
+            font-weight: bold;
+        }
+
+        .badge {
+            background: #28a745;
+            color: white;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+
+        .timestamp {
+            font-size: 12px;
+            color: #555;
+            margin-top: 5px;
+        }
+
+        .note-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .status {
+            margin-top: 10px;
+            font-size: 13px;
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+    <h2>📝 Cloud Notes App</h2>
+
+    <input type="text" id="title" placeholder="Note title">
+    <textarea id="content" placeholder="Note content"></textarea>
+
+    <button class="btn-primary" onclick="submitNote()" id="submitBtn">
+        Create Note
+    </button>
+
+    <div class="status" id="status"></div>
+
+    <div class="notes-header">
+        <h3>Your Notes</h3>
+        <input type="text" id="search" placeholder="Search notes..." onkeyup="filterNotes()">
+        <button class="btn-secondary" onclick="getNotes()">Refresh</button>
+    </div>
+
+    <div id="notes"></div>
+</div>
+
+<script>
+    const API_BASE = "https://1wu23vo65b.execute-api.us-east-2.amazonaws.com/prod";
+
+    let editNoteId = null;
+    let lastUpdatedNoteId = null;
+    let allNotes = [];
+
+    async function submitNote() {
+        const title = document.getElementById("title").value.trim();
+        const content = document.getElementById("content").value.trim();
+
+        if (!title || !content) {
+            alert("Title and content are required");
+            return;
+        }
+
+        let payload = { title, content };
+
+        if (editNoteId) {
+            payload.action = "update";
+            payload.noteID = editNoteId;
+            lastUpdatedNoteId = editNoteId;
+        }
+
+        await fetch(`${API_BASE}/notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        document.getElementById("status").innerText =
+            editNoteId ? "Note updated successfully" : "Note created successfully";
+
+        resetForm();
+        getNotes();
+    }
+
+    function resetForm() {
+        editNoteId = null;
+        document.getElementById("title").value = "";
+        document.getElementById("content").value = "";
+        document.getElementById("submitBtn").innerText = "Create Note";
+    }
+
+    async function getNotes() {
+        const response = await fetch(`${API_BASE}/notes`);
+        const apiResponse = await response.json();
+        const data = JSON.parse(apiResponse.body);
+
+        // ✅ ADD CLIENT TIMESTAMP FALLBACK
+        allNotes = (data.notes || []).map(note => ({
+            ...note,
+            _clientTime: Date.now()
+        }));
+
+        renderNotes(allNotes);
+    }
+
+    function renderNotes(notes) {
+        const notesDiv = document.getElementById("notes");
+        notesDiv.innerHTML = "";
+
+        notes.forEach(note => {
+            const div = document.createElement("div");
+
+            const isUpdated = note.noteID === lastUpdatedNoteId;
+            div.className = isUpdated ? "note updated" : "note";
+
+            const displayTime =
+                note.updatedAt ||
+                note.createdAt ||
+                note._clientTime;
+
+            div.innerHTML = `
+                <div class="note-title">
+                    ${note.title}
+                    ${isUpdated ? '<span class="badge">Updated</span>' : ''}
+                </div>
+
+                <div>${note.content}</div>
+
+                <div class="timestamp">
+                    🕒 ${isUpdated ? "Updated" : "Created"}:
+                    ${formatDate(displayTime)}
+                </div>
+
+                <div class="note-actions">
+                    <button class="btn-secondary"
+                        onclick="editNote('${note.noteID}', '${escapeQuotes(note.title)}', '${escapeQuotes(note.content)}')">
+                        Edit
+                    </button>
+
+                    <button class="btn-danger"
+                        onclick="deleteNote('${note.noteID}')">
+                        Delete
+                    </button>
+                </div>
+            `;
+
+            notesDiv.appendChild(div);
+        });
+    }
+
+    function filterNotes() {
+        const q = document.getElementById("search").value.toLowerCase();
+        renderNotes(allNotes.filter(n =>
+            n.title.toLowerCase().includes(q) ||
+            n.content.toLowerCase().includes(q)
+        ));
+    }
+
+    function editNote(id, title, content) {
+        editNoteId = id;
+        document.getElementById("title").value = title;
+        document.getElementById("content").value = content;
+        document.getElementById("submitBtn").innerText = "Update Note";
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function deleteNote(id) {
+        if (!confirm("Delete this note?")) return;
+
+        await fetch(`${API_BASE}/notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "delete", noteID: id })
+        });
+
+        getNotes();
+    }
+
+    function formatDate(d) {
+        return new Date(d).toLocaleString();
+    }
+
+    function escapeQuotes(text) {
+        return text.replace(/'/g, "\\'");
+    }
+
+    getNotes();
+</script>
+
+</body>
+</html>
