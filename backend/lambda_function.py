@@ -13,6 +13,8 @@ class DecimalEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 def lambda_handler(event, context):
+    print("🚀 Backend deployed via CodePipeline")
+
 
     # ---------- GET NOTES ----------
     if event.get("body") is None:
